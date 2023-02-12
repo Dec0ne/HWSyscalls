@@ -31,6 +31,8 @@ While ours looks like this:
 
 For further information, check out our blog post **(COMING SOON)**.
 
+⚠️ Warning: This project is a work in progress. The current version causes the stack to be unwindable. For more information regarding stack unwinding please check this [blog post on MSDN](https://learn.microsoft.com/en-us/cpp/cpp/exceptions-and-stack-unwinding-in-cpp?view=msvc-170) and [@KlezVirus](https://twitter.com/KlezVirus)'s explanation in [this blog post](https://klezvirus.github.io/RedTeaming/AV_Evasion/StackSpoofing/).
+
 ## Usage
 
 To use the project, you will need to include the HWSyscalls.h and call `InitHWSyscalls` to find the required gadgets and initialize the exception handler.
