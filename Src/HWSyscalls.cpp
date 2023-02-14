@@ -184,7 +184,7 @@ DWORD64 FindSyscallReturnAddress(DWORD64 functionAddress, WORD syscallNumber) {
 #pragma endregion
 
 UINT64 PrepareSyscall(char* functionName) {
-    return k32FunctionAddress;
+    return ntFunctionAddress;
 }
 
 bool SetMainBreakpoint() {
@@ -195,7 +195,7 @@ bool SetMainBreakpoint() {
     DWORD old = 0;
 
     CONTEXT ctx = { 0 };
-    ctx.ContextFlags = CONTEXT_ALL;
+    ctx.ContextFlags = CONTEXT_DEBUG_REGISTERS;
 
     // Get current thread context
     pGetThreadContext(myThread, &ctx);
@@ -213,6 +213,7 @@ bool SetMainBreakpoint() {
         return false;
     }
 
+    DEBUG_PRINT("[+] Main HWBP set successfully\n");
     return true;
 }
 
@@ -226,101 +227,28 @@ LONG HWSyscallExceptionHandler(EXCEPTION_POINTERS* ExceptionInfo) {
             ntFunctionAddress = GetSymbolAddress((UINT64)hNtdll, (const char*)(ExceptionInfo->ContextRecord->Rcx));
             DEBUG_PRINT("[+] Found %s address: 0x%I64X\n", (const char*)(ExceptionInfo->ContextRecord->Rcx), ntFunctionAddress);
             
-            // Move breakpoint to the kernel32 function to be used as a proxy function before the syscall;
-            DEBUG_PRINT("[+] Moving breakpoint to Kernel32 proxy function: 0x%I64X\n", k32FunctionAddress);
-            ExceptionInfo->ContextRecord->Dr0 = k32FunctionAddress;
-        }
-        else if (ExceptionInfo->ContextRecord->Rip == (DWORD64)k32FunctionAddress) {
-            DEBUG_PRINT("[+] Kernel32 Proxy Function Breakpoint Hit (%#llx)!\n", (DWORD64)ExceptionInfo->ExceptionRecord->ExceptionAddress);
-            
-            // Zeroing out the stackArgs array
-            memset(stackArgs, 0, sizeof(UINT64) * STACK_ARGS_LENGTH);
-
-            // Saving the stack arguments to stackArgs array to be restored after the "call rax;" gadget call
-            for (size_t idx = 0; idx < STACK_ARGS_LENGTH; idx++)
-            {
-                const size_t offset = idx * STACK_ARGS_LENGTH + STACK_ARGS_RSP_OFFSET;
-                stackArgs[idx] = *(PULONG64)(ExceptionInfo->ContextRecord->Rsp + offset);
-            }
-            DEBUG_PRINT("[+] Saved stack arguments\n");
-
-            // Save CallRegGadget register value to be restored after the "call rax;" gadget call
-            // Set the value of the appropriate register to point to the syscall function in ntdll
-            DEBUG_PRINT("[+] Setting REGISTER value to NTAPI function address: 0x%I64X\n", ntFunctionAddress);
-            switch (callRegGadgetValue)
-            {
-            case (char)CallRegGadgetEnum::CallRegGadget::Rax:
-                regBackup = ExceptionInfo->ContextRecord->Rax;
-                ExceptionInfo->ContextRecord->Rax = ntFunctionAddress;
-                break;
-            case (char)CallRegGadgetEnum::CallRegGadget::Rcx:
-                regBackup = ExceptionInfo->ContextRecord->Rcx;
-                ExceptionInfo->ContextRecord->Rcx = ntFunctionAddress;
-                break;
-            case (char)CallRegGadgetEnum::CallRegGadget::Rdx:
-                regBackup = ExceptionInfo->ContextRecord->Rdx;
-                ExceptionInfo->ContextRecord->Rdx = ntFunctionAddress;
-                break;
-            case (char)CallRegGadgetEnum::CallRegGadget::Rbx:
-                regBackup = ExceptionInfo->ContextRecord->Rbx;
-                ExceptionInfo->ContextRecord->Rbx = ntFunctionAddress;
-                break;
-            case (char)CallRegGadgetEnum::CallRegGadget::Rsi:
-                regBackup = ExceptionInfo->ContextRecord->Rsi;
-                ExceptionInfo->ContextRecord->Rsi = ntFunctionAddress;
-                break;
-            case (char)CallRegGadgetEnum::CallRegGadget::Rdi:
-                regBackup = ExceptionInfo->ContextRecord->Rdi;
-                ExceptionInfo->ContextRecord->Rdi = ntFunctionAddress;
-                break;
-            default:
-                break;
-            }
-            
-            // Move breakpoint to the syscall function in ntdll;
-            DEBUG_PRINT("[+] Moving breakpoint to NTAPI function: 0x%I64X\n", ntFunctionAddress);
+            // Move breakpoint to the NTAPI function;
+            DEBUG_PRINT("[+] Moving breakpoint to %#llx\n", ntFunctionAddress);
             ExceptionInfo->ContextRecord->Dr0 = ntFunctionAddress;
-
-            // Change RIP to jump to the "call REGISTER;" gadget
-            DEBUG_PRINT("[+] Jumping to \"call REGISTER;\" gadget address: 0x%I64x\n", callRegGadgetAddress);
-            ExceptionInfo->ContextRecord->Rip = callRegGadgetAddress;
-
         }
         else if (ExceptionInfo->ContextRecord->Rip == (DWORD64)ntFunctionAddress) {
             DEBUG_PRINT("[+] NTAPI Function Breakpoint Hit (%#llx)!\n", (DWORD64)ExceptionInfo->ExceptionRecord->ExceptionAddress);
+            
+            // Create a new stack to spoof the kernel32 function address
+            // The stack size will be 0x70 which is compatible with the RET_GADGET we found.
+            // sub rsp, 70
+            ExceptionInfo->ContextRecord->Rsp -= 0x70;
+            // mov rsp, REG_GADGET_ADDRESS
+            *(PULONG64)(ExceptionInfo->ContextRecord->Rsp) = retGadgetAddress;
+            DEBUG_PRINT("[+] Created a new stack frame with RET_GADGET (%#llx) as the return address\n", retGadgetAddress);
 
-            // Restore stack arguments from stackArgs array
+            // Copy the stack arguments from the original stack
             for (size_t idx = 0; idx < STACK_ARGS_LENGTH; idx++)
             {
                 const size_t offset = idx * STACK_ARGS_LENGTH + STACK_ARGS_RSP_OFFSET;
-                *(PULONG64)(ExceptionInfo->ContextRecord->Rsp + offset) = stackArgs[idx];
+                *(PULONG64)(ExceptionInfo->ContextRecord->Rsp + offset) = *(PULONG64)(ExceptionInfo->ContextRecord->Rsp + offset + 0x70);
             }
-
-            // Restore CallRegGadget register
-            switch (callRegGadgetValue)
-            {
-            case (char)CallRegGadgetEnum::CallRegGadget::Rax:
-                ExceptionInfo->ContextRecord->Rax = regBackup;
-                break;
-            case (char)CallRegGadgetEnum::CallRegGadget::Rcx:
-                ExceptionInfo->ContextRecord->Rcx = regBackup;
-                break;
-            case (char)CallRegGadgetEnum::CallRegGadget::Rdx:
-                ExceptionInfo->ContextRecord->Rdx = regBackup;
-                break;
-            case (char)CallRegGadgetEnum::CallRegGadget::Rbx:
-                ExceptionInfo->ContextRecord->Rbx = regBackup;
-                break;
-            case (char)CallRegGadgetEnum::CallRegGadget::Rsi:
-                ExceptionInfo->ContextRecord->Rsi = regBackup;
-                break;
-            case (char)CallRegGadgetEnum::CallRegGadget::Rdi:
-                ExceptionInfo->ContextRecord->Rdi = regBackup;
-                break;
-            default:
-                break;
-            }
-            DEBUG_PRINT("[+] Restored stack arguments and REGISTER value\n");
+            DEBUG_PRINT("[+] Original stack arguments successfully copied over to the new stack\n");
 
             DWORD64 pFunctionAddress = ExceptionInfo->ContextRecord->Rip;
 
@@ -359,21 +287,9 @@ LONG HWSyscallExceptionHandler(EXCEPTION_POINTERS* ExceptionInfo) {
 
             }
 
-            // Move breakpoint to callRegGadgetAddressRet so we can catch the execution once the syscall has finished
-            DEBUG_PRINT("[+] Moving breakpoint to callRaxGadgetAddressRet to catch the return from NTAPI function: 0x%I64X\n", callRegGadgetAddressRet);
-            ExceptionInfo->ContextRecord->Dr0 = callRegGadgetAddressRet;
-
-        }
-        else if (ExceptionInfo->ContextRecord->Rip == (DWORD64)callRegGadgetAddressRet) {
-            DEBUG_PRINT("[+] callRegGadgetAddressRet Breakpoint Hit (%#llx)!\n", (DWORD64)ExceptionInfo->ExceptionRecord->ExceptionAddress);
-            
             // Move breakpoint back to PrepareSyscall to catch the next invoke
             DEBUG_PRINT("[+] Moving breakpoint back to PrepareSyscall to catch the next invoke\n");
             ExceptionInfo->ContextRecord->Dr0 = (UINT64)&PrepareSyscall;
-
-            // Change RIP to jump to the "ret;" gadget
-            DEBUG_PRINT("[+] Jumping to \"ret;\" gadget address: 0x%I64X\n", retGadgetAddress);
-            ExceptionInfo->ContextRecord->Rip = retGadgetAddress;
 
             DEBUG_PRINT("==============================================\n\n");
 
@@ -383,25 +299,18 @@ LONG HWSyscallExceptionHandler(EXCEPTION_POINTERS* ExceptionInfo) {
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
-bool FindCallRegGadget() {
-    char buffer[2] = {0xFF, 0x00};
-
-    // Dynamically search for a suitable "CALL REGISTER" gadget in both kernel32 and kernelbase
-    if (callRegGadgetValue == 0) {
-        for (CallRegGadgetEnum::CallRegGadget e : CallRegGadgetEnum::All) {
-            buffer[1] = (char)e;
-            callRegGadgetAddress = FindInModule("KERNEL32.DLL", (PBYTE)buffer, (PCHAR)"xx");
-            if (callRegGadgetAddress != 0) {
-                callRegGadgetValue = (char)e;
-                return true;
-            }
-            else {
-                callRegGadgetAddress = FindInModule("kernelbase.dll", (PBYTE)buffer, (PCHAR)"xx");
-                if (callRegGadgetAddress != 0) {
-                    callRegGadgetValue = (char)e;
-                    return true;
-                }
-            }
+bool FindRetGadget() {
+    // Dynamically search for a suitable "ADD RSP,68;RET" gadget in both kernel32 and kernelbase
+    retGadgetAddress = FindInModule("KERNEL32.DLL", (PBYTE)"\x48\x83\xC4\x68\xC3", (PCHAR)"xxxxx");
+    if (retGadgetAddress != 0) {
+        DEBUG_PRINT("[+] Found RET_GADGET in kernel32.dll: %#llx\n", retGadgetAddress);
+        return true;
+    }
+    else {
+        retGadgetAddress = FindInModule("kernelbase.dll", (PBYTE)"\x48\x83\xC4\x68\xC3", (PCHAR)"xxxxx");
+        DEBUG_PRINT("[+] Found RET_GADGET in kernelbase.dll: %#llx\n", retGadgetAddress);
+        if (retGadgetAddress != 0) {
+            return true;
         }
     }
     return false;
@@ -411,23 +320,18 @@ bool InitHWSyscalls() {
     myThread = GetCurrentThread();
     hNtdll = (HANDLE)GetModuleAddress((LPWSTR)L"ntdll.dll");
 
-    // Find Kernel32 proxy function address
-    k32FunctionAddress = GetSymbolAddress(GetModuleAddress((LPWSTR)L"KERNEL32.DLL"), "GetCalendarInfoA");
-
-    // Find a suitable "CALL REGISTER" gadget
-    if (!FindCallRegGadget()) {
-        DEBUG_PRINT("[!] Could not find a suitable \"CALL REGISTER\" gadget in kernel32 or kernelbase. InitHWSyscalls failed.");
+    if (!FindRetGadget()) {
+        DEBUG_PRINT("[!] Could not find a suitable \"ADD RSP,68;RET\" gadget in kernel32 or kernelbase. InitHWSyscalls failed.");
         return false;
     }
-
-    callRegGadgetAddressRet = (UINT64)((char*)callRegGadgetAddress + 2);
-    retGadgetAddress = FindInModule("KERNEL32.DLL", (PBYTE)"\xC3", (PCHAR)"x");
 
     // Register exception handler
     exceptionHandlerHandle = AddVectoredExceptionHandler(1, &HWSyscallExceptionHandler);
 
-    if (!exceptionHandlerHandle)
+    if (!exceptionHandlerHandle) {
+        DEBUG_PRINT("[!] Could not register VEH: 0x%X\n", GetLastError());
         return false;
+    }
 
     return SetMainBreakpoint();
 }
