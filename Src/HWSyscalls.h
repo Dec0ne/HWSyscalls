@@ -26,19 +26,6 @@
 
 #pragma region Type Defintions
 
-namespace CallRegGadgetEnum {
-    enum CallRegGadget {
-        Rax = 0xd0,
-        Rcx = 0xd1,
-        Rdx = 0xd2,
-        Rbx = 0xd3,
-        Rsi = 0xd6,
-        Rdi = 0xd7
-    };
-    static const CallRegGadget All[] = { Rax, Rcx, Rdx, Rbx, Rsi, Rdi };
-}
-
-
 typedef struct _UNICODE_STRING {
     USHORT Length;
     USHORT MaximumLength;
@@ -111,7 +98,6 @@ bool SetMainBreakpoint();
 DWORD64 FindSyscallNumber(DWORD64 functionAddress);
 DWORD64 FindSyscallReturnAddress(DWORD64 functionAddress, WORD syscallNumber);
 LONG HWSyscallExceptionHandler(EXCEPTION_POINTERS* ExceptionInfo);
-bool FindCallRegGadget();
 bool InitHWSyscalls();
 bool DeinitHWSyscalls();
 

@@ -29,9 +29,16 @@ While ours looks like this:
 
 ![hwsyscalls_flow](Images/hwsyscalls_flow.png)
 
-For further information, check out our blog post **(COMING SOON)**.
+### Update
 
-⚠️ Warning: This project is a work in progress. The current version causes the stack to be unwindable. For more information regarding stack unwinding please check this [blog post on MSDN](https://learn.microsoft.com/en-us/cpp/cpp/exceptions-and-stack-unwinding-in-cpp?view=msvc-170) and [@KlezVirus](https://twitter.com/KlezVirus)'s explanation in [this blog post](https://klezvirus.github.io/RedTeaming/AV_Evasion/StackSpoofing/).
+We've updated the HWSyscallExceptionHandler function logic with some stack manipulation magic in order to make the stack unwindable.
+We've done so by calling the NTAPI function directly (its address is now returned in the PrepareSyscall function), hitting the HWBP in the NTAPI function, creating a new stack frame and setting the return address of the new stack frame to a "ADD RSP, 68; RET" gadget found in kernel32 (or kernelbase) while also copying over the stack arguments as well. 
+
+The stack is now completely unwindable and actually return through kernel32 on its way back from ntdll without any need for breakpoints and execution flow manipulation on our part:
+
+![hwsyscalls_stack](Images/hwsyscalls_stack.png)
+
+For further information, check out our blog post **(COMING SOON)**.
 
 ## Usage
 
