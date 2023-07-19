@@ -2,7 +2,7 @@
 
 ![image](https://img.shields.io/badge/C%2B%2B-00599C?style=for-the-badge&logo=c%2B%2B&logoColor=white) ![image](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)
 
-## This project was co-authored by
+## Main Contributors
 
 [![Dec0ne](https://img.shields.io/badge/Dec0ne-FF1B2D?style=for-the-badge&logo=Dec0ne&logoColor=white)](https://github.com/Dec0ne) [![idov31](https://img.shields.io/badge/Idov31-D98634?style=for-the-badge&logo=Idov31&logoColor=white)](https://github.com/idov31)
 
